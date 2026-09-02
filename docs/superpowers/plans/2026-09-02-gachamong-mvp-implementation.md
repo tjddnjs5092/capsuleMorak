@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build a working Next.js demo of the 가챠몽 online gacha shop — browse a machine, pull a capsule with a cinematic video effect, see the result, and manage a virtual-cash inventory — backed by a real Postgres database (no real payments).
+**Goal:** Build a working Next.js demo of the 가챠몽 online gacha shop — browse a machine, pull a capsule with a cinematic video effect, see the result, and manage a virtual-cash inventory — backed by a real database via Prisma (no real payments).
 
 **Architecture:** Next.js 14 (App Router) full-stack app. Server-side API route handlers own all game logic (weighted item pick, cash debit, duplicate refund) so nothing security-relevant runs client-side. Prisma is the only DB access layer. Auth.js (NextAuth, credentials provider) issues the session used to identify the user on every API route. Pure game-logic functions (weighted pick, refund calc) are unit-tested with Vitest; routes and pages are verified by running the dev server and exercising them in the browser, since mocking Next's route-handler internals buys little real confidence over hitting the live route.
 
-**Tech Stack:** Next.js 14 (App Router, TypeScript), Tailwind CSS, PostgreSQL, Prisma 5, NextAuth 4 (credentials provider), bcryptjs, Vitest.
+**Tech Stack:** Next.js 14 (App Router, TypeScript), Tailwind CSS, SQLite via Prisma 5 (dev — see Task 2's note on why, and the one-line path to swap in PostgreSQL for a real deployment), NextAuth 4 (credentials provider), bcryptjs, Vitest.
 
 **Spec:** [docs/superpowers/specs/2026-09-02-gachamong-design.md](../specs/2026-09-02-gachamong-design.md)
 
@@ -32,7 +32,6 @@ gachamong/
   tailwind.config.ts
   postcss.config.js
   vitest.config.ts
-  docker-compose.yml
   .env.example
   types/
     next-auth.d.ts
@@ -275,52 +274,39 @@ git commit -m "chore: scaffold Next.js + Tailwind project"
 
 ### Task 2: Database schema, migration, seed data
 
+> **Deviation from the spec's tech stack (ruled during execution, not a fresh choice):** the spec calls for PostgreSQL. This machine has neither Docker nor a native PostgreSQL install available, and installing either is a system-level change (a background service, or a Docker Desktop install that typically needs a reboot) outside what an implementer should do unprompted. Prisma's SQLite provider needs no install — the database is just a file in the repo — and it satisfies the spec's actual requirement ("실제 DB에 저장 (로컬스토리지 아님)", i.e. a real database, not localStorage). The one real cost: **Prisma does not support native enums on SQLite**, so `grade` is a plain `String` here instead of a `Grade` enum — every later task already treats `grade` as a string in its TypeScript (`Record<string, string>` lookups, `item.grade: string` in component props), so this has no ripple effect beyond this task. Switching to Postgres for a real deployment later is a one-line `provider` change plus a fresh migration.
+
 **Files:**
-- Create: `docker-compose.yml`
 - Create: `.env.example`
+- Modify: `.gitignore` (append `*.db`, `*.db-journal`)
 - Create: `prisma/schema.prisma`
 - Create: `lib/prisma.ts`
 - Create: `prisma/seed.ts`
 
 **Interfaces:**
-- Produces: Prisma models `User`, `Machine`, `Item`, `PullLog`, `InventoryEntry`, enum `Grade` (`COMMON`, `RARE`, `SUPER_RARE`); singleton `prisma` client export from `lib/prisma.ts`.
+- Produces: Prisma models `User`, `Machine`, `Item`, `PullLog`, `InventoryEntry`; `grade` fields are `String` holding one of `"COMMON" | "RARE" | "SUPER_RARE"` (enforced in application code, not the DB, per the SQLite limitation above); singleton `prisma` client export from `lib/prisma.ts`.
 - Produces: seeded `Machine` with slug-free `id`, `pullPrice: 100`, and 6 `Item`s (3 common / 2 rare / 1 super rare) whose `probability` fields sum to `1.0` — later tasks (pull route, machine page) rely on this seed existing.
 
-- [ ] **Step 1: Create `docker-compose.yml`** (local Postgres for dev)
-
-```yaml
-services:
-  db:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: gachamong
-      POSTGRES_PASSWORD: gachamong
-      POSTGRES_DB: gachamong
-    ports:
-      - "5432:5432"
-    volumes:
-      - gachamong_pgdata:/var/lib/postgresql/data
-volumes:
-  gachamong_pgdata:
-```
-
-- [ ] **Step 2: Create `.env.example`**
+- [ ] **Step 1: Create `.env.example`**
 
 ```
-DATABASE_URL="postgresql://gachamong:gachamong@localhost:5432/gachamong"
+DATABASE_URL="file:./dev.db"
 NEXTAUTH_URL="http://localhost:3000"
 NEXTAUTH_SECRET="replace-with-openssl-rand-base64-32"
 ```
 
 Copy it: `cp .env.example .env` and fill `NEXTAUTH_SECRET` with the output of `openssl rand -base64 32` (or any random 32+ char string for local dev).
 
-- [ ] **Step 3: Start Postgres**
+- [ ] **Step 2: Append SQLite artifacts to `.gitignore`**
 
-Run: `docker compose up -d`
-Expected: `docker compose ps` shows the `db` service as `running (healthy)` or `Up`.
+The SQLite database file is local dev state, not source — it must not be committed. Append these two lines to the existing `.gitignore` (created in Task 1; do not remove any of its existing lines):
 
-- [ ] **Step 4: Create `prisma/schema.prisma`**
+```
+*.db
+*.db-journal
+```
+
+- [ ] **Step 3: Create `prisma/schema.prisma`**
 
 ```prisma
 generator client {
@@ -328,14 +314,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "sqlite"
   url      = env("DATABASE_URL")
-}
-
-enum Grade {
-  COMMON
-  RARE
-  SUPER_RARE
 }
 
 model User {
@@ -366,7 +346,7 @@ model Item {
   machine          Machine           @relation(fields: [machineId], references: [id])
   name             String
   imageUrl         String?
-  grade            Grade
+  grade            String
   probability      Float
   price            Int
   stock            Int
@@ -382,7 +362,7 @@ model PullLog {
   machine   Machine  @relation(fields: [machineId], references: [id])
   itemId    String
   item      Item     @relation(fields: [itemId], references: [id])
-  grade     Grade
+  grade     String
   createdAt DateTime @default(now())
 }
 
@@ -398,12 +378,12 @@ model InventoryEntry {
 }
 ```
 
-- [ ] **Step 5: Run the migration**
+- [ ] **Step 4: Run the migration**
 
 Run: `npx prisma migrate dev --name init`
-Expected: migration succeeds, prints `Your database is now in sync with your schema.`
+Expected: migration succeeds, prints `Your database is now in sync with your schema.`, and creates `prisma/dev.db`.
 
-- [ ] **Step 6: Create `lib/prisma.ts`** (singleton client, avoids exhausting connections on hot reload)
+- [ ] **Step 5: Create `lib/prisma.ts`** (singleton client, avoids exhausting connections on hot reload)
 
 ```ts
 import { PrismaClient } from "@prisma/client";
@@ -417,10 +397,10 @@ if (process.env.NODE_ENV !== "production") {
 }
 ```
 
-- [ ] **Step 7: Create `prisma/seed.ts`**
+- [ ] **Step 6: Create `prisma/seed.ts`**
 
 ```ts
-import { PrismaClient, Grade } from "@prisma/client";
+import { PrismaClient } from "@prisma/client";
 
 const prisma = new PrismaClient();
 
@@ -438,12 +418,12 @@ async function main() {
       pullPrice: 100,
       items: {
         create: [
-          { name: "몽글 가챠몽", grade: Grade.COMMON, probability: 0.2334, price: 100, stock: 999 },
-          { name: "포근 가챠몽", grade: Grade.COMMON, probability: 0.2333, price: 100, stock: 999 },
-          { name: "살랑 가챠몽", grade: Grade.COMMON, probability: 0.2333, price: 100, stock: 999 },
-          { name: "반짝 가챠몽", grade: Grade.RARE, probability: 0.125, price: 300, stock: 200 },
-          { name: "별빛 가챠몽", grade: Grade.RARE, probability: 0.125, price: 300, stock: 200 },
-          { name: "골드 가챠몽", grade: Grade.SUPER_RARE, probability: 0.05, price: 1000, stock: 20 }
+          { name: "몽글 가챠몽", grade: "COMMON", probability: 0.2334, price: 100, stock: 999 },
+          { name: "포근 가챠몽", grade: "COMMON", probability: 0.2333, price: 100, stock: 999 },
+          { name: "살랑 가챠몽", grade: "COMMON", probability: 0.2333, price: 100, stock: 999 },
+          { name: "반짝 가챠몽", grade: "RARE", probability: 0.125, price: 300, stock: 200 },
+          { name: "별빛 가챠몽", grade: "RARE", probability: 0.125, price: 300, stock: 200 },
+          { name: "골드 가챠몽", grade: "SUPER_RARE", probability: 0.05, price: 1000, stock: 20 }
         ]
       }
     }
@@ -460,16 +440,16 @@ main()
   .finally(() => prisma.$disconnect());
 ```
 
-- [ ] **Step 8: Run the seed**
+- [ ] **Step 7: Run the seed**
 
 Run: `npx tsx prisma/seed.ts`
 Expected: prints `Seeded 말랑 몽글몽글 머신 with 6 items.`
 
-- [ ] **Step 9: Commit**
+- [ ] **Step 8: Commit**
 
 ```bash
-git add docker-compose.yml .env.example prisma lib/prisma.ts package.json
-git commit -m "feat: add Prisma schema, migration, and seed data"
+git add .gitignore .env.example prisma lib/prisma.ts package.json
+git commit -m "feat: add Prisma schema (SQLite), migration, and seed data"
 ```
 
 ---
