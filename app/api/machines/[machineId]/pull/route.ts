@@ -44,7 +44,18 @@ export async function POST(request: Request, { params }: { params: { machineId: 
         where: { id: userId },
         data: { cashBalance: { decrement: machine.pullPrice } }
       });
-      await tx.item.update({ where: { id: picked.id }, data: { stock: { decrement: 1 } } });
+
+      // Conditional decrement: only succeeds if stock is still > 0 at write time, so
+      // two concurrent requests racing for the last unit of the same item can't both
+      // decrement it below 0. `picked` was chosen from a stale pre-transaction read.
+      const stockUpdate = await tx.item.updateMany({
+        where: { id: picked.id, stock: { gt: 0 } },
+        data: { stock: { decrement: 1 } }
+      });
+      if (stockUpdate.count === 0) {
+        throw new Error("OUT_OF_STOCK");
+      }
+
       await tx.pullLog.create({
         data: { userId, machineId: machine.id, itemId: picked.id, grade: picked.grade }
       });
@@ -81,6 +92,9 @@ export async function POST(request: Request, { params }: { params: { machineId: 
   } catch (err) {
     if (err instanceof Error && err.message === "INSUFFICIENT_CASH") {
       return NextResponse.json({ error: "캐시가 부족해요." }, { status: 402 });
+    }
+    if (err instanceof Error && err.message === "OUT_OF_STOCK") {
+      return NextResponse.json({ error: "재고가 모두 소진됐어요." }, { status: 409 });
     }
     throw err;
   }
