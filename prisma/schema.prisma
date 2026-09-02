@@ -1,0 +1,67 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String            @id @default(cuid())
+  email        String            @unique
+  passwordHash String
+  cashBalance  Int               @default(1000)
+  createdAt    DateTime          @default(now())
+  pullLogs     PullLog[]
+  inventory    InventoryEntry[]
+}
+
+model Machine {
+  id          String    @id @default(cuid())
+  name        String
+  description String
+  imageUrl    String?
+  pullPrice   Int       @default(100)
+  isActive    Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  items       Item[]
+  pullLogs    PullLog[]
+}
+
+model Item {
+  id               String            @id @default(cuid())
+  machineId        String
+  machine          Machine           @relation(fields: [machineId], references: [id])
+  name             String
+  imageUrl         String?
+  grade            String
+  probability      Float
+  price            Int
+  stock            Int
+  pullLogs         PullLog[]
+  inventoryEntries InventoryEntry[]
+}
+
+model PullLog {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  machineId String
+  machine   Machine  @relation(fields: [machineId], references: [id])
+  itemId    String
+  item      Item     @relation(fields: [itemId], references: [id])
+  grade     String
+  createdAt DateTime @default(now())
+}
+
+model InventoryEntry {
+  id           String    @id @default(cuid())
+  userId       String
+  user         User      @relation(fields: [userId], references: [id])
+  itemId       String
+  item         Item      @relation(fields: [itemId], references: [id])
+  acquiredAt   DateTime  @default(now())
+  refundedAt   DateTime?
+  refundAmount Int?
+}
