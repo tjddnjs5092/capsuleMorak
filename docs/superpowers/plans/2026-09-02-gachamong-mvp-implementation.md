@@ -1123,13 +1123,34 @@ git commit -m "feat: add home page with machine list and cash badge"
 ### Task 7: Machine detail page (odds + pull trigger)
 
 **Files:**
+- Create: `components/PullEffect.tsx` (minimal stub — Task 8 replaces this file's contents entirely)
 - Create: `app/machines/[machineId]/page.tsx`
 
 **Interfaces:**
-- Consumes: `GachamongMascot` (Task 6), `PullEffect` (Task 8 — stub it minimally here, fill in fully in Task 8).
-- Produces: page that renders odds and hands a `machineId` + `pullPrice` to `PullEffect`.
+- Consumes: `GachamongMascot` (Task 6).
+- Produces: a stub `<PullEffect machineId={string} pullPrice={number} />` (Task 8 replaces the implementation but must keep this exact prop signature, since this task's page already calls it this way); the machine detail page itself, which renders odds and hands `machineId` + `pullPrice` to `PullEffect`.
 
-- [ ] **Step 1: Create `app/machines/[machineId]/page.tsx`**
+- [ ] **Step 1: Create a stub `components/PullEffect.tsx`**
+
+The page below imports and renders `PullEffect`, but its full implementation (the video overlay and pull API call) is built in Task 8. Without this stub, the project fails to build the moment this task commits. Keep the stub minimal — Task 8 overwrites the whole file:
+
+```tsx
+"use client";
+
+export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPrice: number }) {
+  return (
+    <button
+      disabled
+      className="font-display rounded-xl bg-gold/50 text-[#2a1600] py-3.5 cursor-not-allowed"
+      title={`machine ${machineId}`}
+    >
+      🎰 뽑기 ({pullPrice.toLocaleString()} 캐시) — 준비 중
+    </button>
+  );
+}
+```
+
+- [ ] **Step 2: Create `app/machines/[machineId]/page.tsx`**
 
 ```tsx
 import { notFound } from "next/navigation";
@@ -1192,16 +1213,16 @@ export default async function MachineDetailPage({ params }: { params: { machineI
 }
 ```
 
-- [ ] **Step 2: Manual verification (partial — full pull flow verified in Task 8)**
+- [ ] **Step 3: Manual verification (partial — full pull flow verified in Task 8)**
 
 Run: `npm run dev`, open `http://localhost:3000/machines/<seeded machine id>`.
-Expected: page renders name, description, three grade badges with percentages summing to 100.0%, and stock count — no console errors, even though the pull button isn't wired up until Task 8.
+Expected: page renders name, description, three grade badges with percentages summing to 100.0%, and stock count, plus a disabled "🎰 뽑기 (... 캐시) — 준비 중" button — no console errors.
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 4: Commit**
 
 ```bash
-git add app/machines
-git commit -m "feat: add machine detail page with odds display"
+git add components/PullEffect.tsx app/machines
+git commit -m "feat: add machine detail page with odds display and pull-button stub"
 ```
 
 ---
@@ -1210,10 +1231,10 @@ git commit -m "feat: add machine detail page with odds display"
 
 **Files:**
 - Create: `public/videos/pull-effect.mp4`
-- Create: `components/PullEffect.tsx`
+- Modify: `components/PullEffect.tsx` (replace the Task 7 stub's contents entirely)
 
 **Interfaces:**
-- Consumes: `POST /api/machines/:machineId/pull` (Task 5); `GachamongMascot` (Task 6).
+- Consumes: `POST /api/machines/:machineId/pull` (Task 5); `GachamongMascot` (Task 6); must keep the stub's exact prop signature `{ machineId: string; pullPrice: number }` from Task 7, since `app/machines/[machineId]/page.tsx` already calls it that way.
 - Produces: `<PullEffect machineId pullPrice />`, self-contained (owns its own overlay/video/result state); dispatches a `window` event `"gachamong:cash-changed"` after a successful pull so `CashBadge` (Task 6) refreshes without prop-drilling.
 
 - [ ] **Step 1: Copy the real pull-effect video into the project**
