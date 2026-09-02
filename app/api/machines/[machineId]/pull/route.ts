@@ -29,45 +29,61 @@ export async function POST(request: Request, { params }: { params: { machineId: 
 
   const picked = pickWeightedItem(machine.items);
 
-  const result = await prisma.$transaction(async (tx) => {
-    await tx.user.update({
-      where: { id: userId },
-      data: { cashBalance: { decrement: machine.pullPrice } }
-    });
-    await tx.item.update({ where: { id: picked.id }, data: { stock: { decrement: 1 } } });
-    await tx.pullLog.create({
-      data: { userId, machineId: machine.id, itemId: picked.id, grade: picked.grade }
-    });
+  let result;
+  try {
+    result = await prisma.$transaction(async (tx) => {
+      // Re-check the balance inside the transaction against a fresh read, so two
+      // concurrent requests can't both pass the outer pre-check on a stale balance
+      // and both decrement. Throwing here rolls back the whole transaction.
+      const freshUser = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+      if (freshUser.cashBalance < machine.pullPrice) {
+        throw new Error("INSUFFICIENT_CASH");
+      }
 
-    const alreadyOwned = await tx.inventoryEntry.findFirst({
-      where: { userId, itemId: picked.id, refundedAt: null }
-    });
-
-    let refundAmount = 0;
-    if (alreadyOwned) {
-      refundAmount = calculateDuplicateRefund(picked.price);
-      await tx.inventoryEntry.create({
-        data: {
-          userId,
-          itemId: picked.id,
-          refundedAt: new Date(),
-          refundAmount
-        }
+      await tx.user.update({
+        where: { id: userId },
+        data: { cashBalance: { decrement: machine.pullPrice } }
       });
-      await tx.user.update({ where: { id: userId }, data: { cashBalance: { increment: refundAmount } } });
-    } else {
-      await tx.inventoryEntry.create({ data: { userId, itemId: picked.id } });
+      await tx.item.update({ where: { id: picked.id }, data: { stock: { decrement: 1 } } });
+      await tx.pullLog.create({
+        data: { userId, machineId: machine.id, itemId: picked.id, grade: picked.grade }
+      });
+
+      const alreadyOwned = await tx.inventoryEntry.findFirst({
+        where: { userId, itemId: picked.id, refundedAt: null }
+      });
+
+      let refundAmount = 0;
+      if (alreadyOwned) {
+        refundAmount = calculateDuplicateRefund(picked.price);
+        await tx.inventoryEntry.create({
+          data: {
+            userId,
+            itemId: picked.id,
+            refundedAt: new Date(),
+            refundAmount
+          }
+        });
+        await tx.user.update({ where: { id: userId }, data: { cashBalance: { increment: refundAmount } } });
+      } else {
+        await tx.inventoryEntry.create({ data: { userId, itemId: picked.id } });
+      }
+
+      const updatedUser = await tx.user.findUniqueOrThrow({ where: { id: userId } });
+
+      return {
+        item: { id: picked.id, name: picked.name, imageUrl: picked.imageUrl, grade: picked.grade },
+        duplicate: Boolean(alreadyOwned),
+        refundAmount,
+        cashBalance: updatedUser.cashBalance
+      };
+    });
+  } catch (err) {
+    if (err instanceof Error && err.message === "INSUFFICIENT_CASH") {
+      return NextResponse.json({ error: "캐시가 부족해요." }, { status: 402 });
     }
-
-    const updatedUser = await tx.user.findUniqueOrThrow({ where: { id: userId } });
-
-    return {
-      item: { id: picked.id, name: picked.name, imageUrl: picked.imageUrl, grade: picked.grade },
-      duplicate: Boolean(alreadyOwned),
-      refundAmount,
-      cashBalance: updatedUser.cashBalance
-    };
-  });
+    throw err;
+  }
 
   return NextResponse.json(result);
 }
