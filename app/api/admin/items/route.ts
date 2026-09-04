@@ -21,10 +21,12 @@ export async function POST(request: Request) {
     typeof name !== "string" ||
     !name.trim() ||
     !["COMMON", "RARE", "SUPER_RARE"].includes(grade) ||
-    typeof probability !== "number" ||
+    !Number.isFinite(probability) ||
     probability <= 0 ||
-    typeof price !== "number" ||
-    typeof stock !== "number"
+    !Number.isFinite(price) ||
+    price < 0 ||
+    !Number.isFinite(stock) ||
+    stock < 0
   ) {
     return NextResponse.json({ error: "입력값을 확인해주세요." }, { status: 400 });
   }
