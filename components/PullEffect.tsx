@@ -22,6 +22,7 @@ export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPr
   const [result, setResult] = useState<PullResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
+  const [pending, setPending] = useState(false);
   const videoRef = useRef<HTMLVideoElement>(null);
 
   // Trigger playback after the overlay (and its <video> element) has actually mounted.
@@ -46,6 +47,8 @@ export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPr
   }, [open, attempt]);
 
   async function startPull() {
+    if (pending) return;
+    setPending(true);
     setError(null);
     setResult(null);
     setVideoDone(false);
@@ -56,22 +59,35 @@ export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPr
       typeof window !== "undefined" &&
       window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    const pullPromise = fetch(`/api/machines/${machineId}/pull`, { method: "POST" }).then((res) =>
-      res.json()
-    );
-
-    const body = await pullPromise;
-    if (body.error) {
-      setError(body.error);
+    try {
+      const res = await fetch(`/api/machines/${machineId}/pull`, { method: "POST" });
+      let body: (PullResult & { error?: string }) | { error?: string };
+      try {
+        body = await res.json();
+      } catch {
+        throw new Error("응답을 처리하지 못했어요.");
+      }
+      if (!res.ok || body.error) {
+        setError(body.error ?? "뽑기에 실패했어요.");
+        setOpen(false);
+        return;
+      }
+      setResult(body as PullResult);
+      if (prefersReducedMotion) setVideoDone(true);
+      window.dispatchEvent(new Event("gachamong:cash-changed"));
+    } catch {
+      setError("뽑기에 실패했어요. 다시 시도해주세요.");
       setOpen(false);
-      return;
+    } finally {
+      setPending(false);
     }
-    setResult(body as PullResult);
-    if (prefersReducedMotion) setVideoDone(true);
-    window.dispatchEvent(new Event("gachamong:cash-changed"));
   }
 
   function handleVideoEnded() {
+    setVideoDone(true);
+  }
+
+  function handleVideoError() {
     setVideoDone(true);
   }
 
@@ -86,7 +102,8 @@ export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPr
     <>
       <button
         onClick={startPull}
-        className="font-display rounded-xl bg-gold text-[#2a1600] py-3.5 shadow-[0_6px_0_#b9740f] active:translate-y-1 active:shadow-none transition-transform"
+        disabled={pending}
+        className="font-display rounded-xl bg-gold text-[#2a1600] py-3.5 shadow-[0_6px_0_#b9740f] active:translate-y-1 active:shadow-none transition-transform disabled:opacity-60"
       >
         🎰 뽑기 ({pullPrice.toLocaleString()} 캐시)
       </button>
@@ -108,6 +125,7 @@ export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPr
               muted
               playsInline
               onEnded={handleVideoEnded}
+              onError={handleVideoError}
               className="w-full h-full object-cover transition-opacity duration-300"
               style={{ opacity: showResult ? 0 : 1 }}
             >
@@ -119,9 +137,9 @@ export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPr
                 <GachamongMascot className="w-32 h-32 drop-shadow-[0_10px_16px_rgba(0,0,0,.4)]" />
                 <span
                   className="font-display text-sm"
-                  style={{ color: GRADE_LABEL[result.item.grade].color }}
+                  style={{ color: (GRADE_LABEL[result.item.grade] ?? GRADE_LABEL.COMMON).color }}
                 >
-                  {GRADE_LABEL[result.item.grade].text}
+                  {(GRADE_LABEL[result.item.grade] ?? GRADE_LABEL.COMMON).text}
                 </span>
                 <div className="font-display text-2xl text-cream">{result.item.name}</div>
                 <p className="text-sm text-text-dim">
@@ -138,7 +156,8 @@ export function PullEffect({ machineId, pullPrice }: { machineId: string; pullPr
                   </button>
                   <button
                     onClick={startPull}
-                    className="font-display flex-1 rounded-xl bg-gold text-[#2a1600] py-3 shadow-[0_5px_0_#b9740f]"
+                    disabled={pending}
+                    className="font-display flex-1 rounded-xl bg-gold text-[#2a1600] py-3 shadow-[0_5px_0_#b9740f] disabled:opacity-60"
                   >
                     🎰 다시 뽑기
                   </button>

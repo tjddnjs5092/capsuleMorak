@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function MachineDetailPage({ params }: { params: { machineId: string } }) {
   const machine = await prisma.machine.findUnique({
     where: { id: params.machineId },
-    include: { items: true }
+    include: { items: { where: { stock: { gt: 0 } } } }
   });
   if (!machine) notFound();
 

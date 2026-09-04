@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
+export const dynamic = "force-dynamic";
+
 async function getDefaultMachine() {
   const machine = await prisma.machine.findFirst({ where: { isActive: true } });
   if (!machine) throw new Error("No active machine found — run the seed script first.");
