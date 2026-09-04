@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { MachineCard } from "@/components/MachineCard";
 import { CashBadge } from "@/components/CashBadge";
+import { LiveFeed } from "@/components/LiveFeed";
 
 export const dynamic = "force-dynamic";
 
@@ -18,6 +19,7 @@ export default async function HomePage() {
         {machines.map((machine) => (
           <MachineCard key={machine.id} machine={machine} />
         ))}
+        <LiveFeed />
       </main>
     </>
   );
